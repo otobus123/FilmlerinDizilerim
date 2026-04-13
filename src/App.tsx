@@ -40,13 +40,15 @@ import {
   CloudLightning,
   Droplets,
   Thermometer,
-  Copy
+  Copy,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { cn } from './lib/utils';
 import { Film, FilmStatus, User, AppSettings, EpisodeWatchedDate } from './types';
 import { fetchMovieDetails } from './services/geminiService';
+import { fetchFilmPosterUrls, getTmdbApiKey } from './services/tmdbPosters';
 import { DUMMY_DATA } from './dummyData';
 import { USER_MANUAL, ManualItem } from './manualData';
 
@@ -58,6 +60,7 @@ const USERS = [
 const DEFAULT_SETTINGS: AppSettings = {
   categories: ['Aksiyon', 'Dram', 'Komedi', 'Bilim Kurgu', 'Korku', 'Belgesel'],
   companions: ['Eşim', 'Arkadaşlarım', 'Ailem', 'Yalnız'],
+  tmdbApiKey: '',
   apiKeys: ['', ''],
   activeKeyIndex: 0
 };
@@ -129,7 +132,32 @@ const TRANSLATIONS = {
     debugLogs: "Sistem Hata/Bilgi Günlükleri",
     backup: "Veritabanı Yedeği",
     loadDummy: "Örnek Veri Yükle",
-    deleteData: "Tüm Verileri Sil"
+    deleteData: "Tüm Verileri Sil",
+    close: "Kapat",
+    sendEmail: "E-posta Gönder",
+    showPosters: "Afişleri göster",
+    postersHint: "Afişler yalnızca bu oturumda gösterilir; kayıtlarınıza veya diske kaydedilmez.",
+    posterNeedKey: "TMDB API anahtarı gerekli. Ayarlar bölümünden ekleyebilir veya geliştirici ortamında VITE_TMDB_API_KEY kullanabilirsiniz.",
+    posterOffline: "Afişler için internet bağlantısı gerekir.",
+    posterNone: "Bu kayıt için afiş bulunamadı.",
+    tmdbSettings: "Film afişleri için API anahtarı",
+    tmdbApiKeyLabel: "API anahtarınızı buraya yapıştırın",
+    tmdbApiKeyPlaceholder: "TMDB’de \"API Key (v3 auth)\" altında görünen uzun harf/rakam kodu",
+    saveTmdbKey: "API anahtarını kaydet",
+    tmdbKeySaved: "API anahtarı kaydedildi.",
+    tmdbExplainTitle: "Bu anahtar ne, neden gerekli?",
+    tmdbExplainP1:
+      "Film veya dizi ayrıntılarında \"Afişleri göster\" dediğinizde kapak görselleri internetten yüklenir. Bunun için The Movie Database (TMDB) adlı sitenin verdiği ücretsiz bir API anahtarı kullanılır.",
+    tmdbExplainP2:
+      "Bu anahtar şifreniz değildir; yalnızca uygulamanın TMDB’ye güvenli şekilde bağlanıp afiş resimlerini listelemesine izin verir. Anahtar film kayıtlarınıza yazılmaz, sadece bu cihazdaki ayarlarda saklanır.",
+    tmdbExplainP3:
+      "Anahtar girmezseniz uygulamanın diğer tüm özellikleri çalışır; sadece afiş önizleme çalışmaz.",
+    tmdbStepsTitle: "Anahtarı nasıl alırım? (ücretsiz)",
+    tmdbStep1: "Tarayıcıda themoviedb.org sitesine gidin ve ücretsiz hesap oluşturun (veya giriş yapın).",
+    tmdbStep2: "Sağ üstte profil simgesi → Ayarlar (Settings) menüsüne girin.",
+    tmdbStep3: "Soldan \"API\" bölümünü açın; \"API Anahtarı (v3 auth)\" veya benzeri başlık altındaki uzun metni kopyalayın.",
+    tmdbStep4: "Kopyaladığınız metni aşağıdaki kutuya yapıştırın ve \"API anahtarını kaydet\" düğmesine basın.",
+    tmdbOfficialLink: "TMDB resmi sitesi (hesap ve API)"
   },
   en: {
     dashboard: "Dashboard",
@@ -197,7 +225,32 @@ const TRANSLATIONS = {
     debugLogs: "System Error/Info Logs",
     backup: "Database Backup",
     loadDummy: "Load Sample Data",
-    deleteData: "Delete All Data"
+    deleteData: "Delete All Data",
+    close: "Close",
+    sendEmail: "Send Email",
+    showPosters: "Show posters",
+    postersHint: "Posters are shown only for this session; they are not saved to your archive or disk.",
+    posterNeedKey: "A TMDB API key is required. Add it in Settings or use VITE_TMDB_API_KEY in development.",
+    posterOffline: "An internet connection is required to load posters.",
+    posterNone: "No posters found for this entry.",
+    tmdbSettings: "API key for movie posters",
+    tmdbApiKeyLabel: "Paste your API key here",
+    tmdbApiKeyPlaceholder: "Key copied from TMDB (e.g. long letters/numbers)",
+    saveTmdbKey: "Save API key",
+    tmdbKeySaved: "API key saved.",
+    tmdbExplainTitle: "What is this key and why do I need it?",
+    tmdbExplainP1:
+      "When you tap \"Show posters\" on a movie or series detail page, cover images are loaded from the internet. That uses a free API key from The Movie Database (TMDB).",
+    tmdbExplainP2:
+      "This key is not your password. It only lets the app ask TMDB to list poster images safely. It is not stored inside your film records—only in settings on this device.",
+    tmdbExplainP3:
+      "If you skip the key, everything else in the app still works; only poster preview will be unavailable.",
+    tmdbStepsTitle: "How do I get a key? (free)",
+    tmdbStep1: "Go to themoviedb.org in your browser and create a free account (or sign in).",
+    tmdbStep2: "Open your profile menu → Settings.",
+    tmdbStep3: "Open the \"API\" section and copy the \"API Key (v3 auth)\" value (or similar).",
+    tmdbStep4: "Paste it into the box below and click \"Save API key\".",
+    tmdbOfficialLink: "TMDB official site (account & API)"
   }
 };
 
@@ -433,7 +486,7 @@ export default function App() {
       <main className="flex-1 p-4 md:p-8 overflow-y-auto max-h-screen">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
-            <DashboardView films={films} t={t} language={language} onNavigate={(tab, filter) => {
+            <DashboardView films={films} settings={settings} t={t} language={language} onNavigate={(tab, filter) => {
               setReportFilter(filter);
               setActiveTab(tab);
             }} onEdit={(f) => {
@@ -479,7 +532,7 @@ export default function App() {
             />
           )}
           {activeTab === 'search' && (
-            <FilmSearchView films={films} t={t} language={language} onEdit={(f) => {
+            <FilmSearchView films={films} settings={settings} t={t} language={language} onEdit={(f) => {
               setEditingFilm(f);
               setActiveTab('entry');
             }} />
@@ -655,6 +708,7 @@ function SettingsView({ settings, onUpdate, user, films, t, language, addDebugLo
   const [newCat, setNewCat] = useState('');
   const [newComp, setNewComp] = useState('');
   const [apiKeys, setApiKeys] = useState(settings.apiKeys || ['', '']);
+  const [tmdbKey, setTmdbKey] = useState(settings.tmdbApiKey || '');
   const [smtp, setSmtp] = useState(settings.smtpSettings || { host: 'smtp.gmail.com', port: '465', user: '', pass: '', fromEmail: '', toEmail: '' });
   const [debugLogs, setDebugLogs] = useState<any[]>([]);
   const [testingAI, setTestingAI] = useState(false);
@@ -732,6 +786,10 @@ function SettingsView({ settings, onUpdate, user, films, t, language, addDebugLo
     setDebugLogs(logs);
   }, []);
 
+  useEffect(() => {
+    setTmdbKey(settings.tmdbApiKey || '');
+  }, [settings.tmdbApiKey]);
+
   const saveApiKeys = () => {
     onUpdate({ ...settings, apiKeys: apiKeys });
     alert(language === 'tr' ? 'Gemini API Anahtarları kaydedildi.' : 'Gemini API Keys saved.');
@@ -767,6 +825,11 @@ function SettingsView({ settings, onUpdate, user, films, t, language, addDebugLo
   const saveSmtp = () => {
     onUpdate({ ...settings, smtpSettings: smtp });
     alert(language === 'tr' ? 'SMTP ayarları kaydedildi.' : 'SMTP settings saved.');
+  };
+
+  const saveTmdb = () => {
+    onUpdate({ ...settings, tmdbApiKey: tmdbKey.trim() });
+    alert(t.tmdbKeySaved);
   };
 
   const clearDebugLogs = () => {
@@ -887,6 +950,68 @@ function SettingsView({ settings, onUpdate, user, films, t, language, addDebugLo
               </span>
             ))}
           </div>
+        </div>
+
+        <div className="md:col-span-2 bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm space-y-5">
+          <div>
+            <h3 className="font-bold text-lg flex items-center gap-2 text-zinc-900">
+              <ImageIcon className="w-5 h-5 text-emerald-600 shrink-0" />
+              {t.tmdbSettings}
+            </h3>
+            <p className="text-xs text-zinc-500 mt-1 leading-relaxed">{t.postersHint}</p>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 space-y-3">
+            <h4 className="text-sm font-bold text-emerald-900 flex items-center gap-2">
+              <Info className="w-4 h-4 shrink-0" />
+              {t.tmdbExplainTitle}
+            </h4>
+            <div className="text-sm text-emerald-950/90 space-y-2 leading-relaxed">
+              <p>{t.tmdbExplainP1}</p>
+              <p>{t.tmdbExplainP2}</p>
+              <p>{t.tmdbExplainP3}</p>
+            </div>
+            <div className="pt-2 border-t border-emerald-200/80">
+              <p className="text-xs font-bold text-emerald-900 uppercase tracking-wide mb-2">{t.tmdbStepsTitle}</p>
+              <ol className="text-sm text-emerald-950/90 space-y-2 list-decimal list-inside leading-relaxed">
+                <li>{t.tmdbStep1}</li>
+                <li>{t.tmdbStep2}</li>
+                <li>{t.tmdbStep3}</li>
+                <li>{t.tmdbStep4}</li>
+              </ol>
+            </div>
+            <a
+              href="https://www.themoviedb.org/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 hover:text-emerald-900 underline underline-offset-2"
+            >
+              {t.tmdbOfficialLink}
+              <ChevronRight className="w-4 h-4" />
+            </a>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-zinc-600" htmlFor="settings-tmdb-api-key">
+              {t.tmdbApiKeyLabel}
+            </label>
+            <input
+              id="settings-tmdb-api-key"
+              type="password"
+              value={tmdbKey}
+              onChange={e => setTmdbKey(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-zinc-200 outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-sm"
+              placeholder={t.tmdbApiKeyPlaceholder}
+              autoComplete="off"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={saveTmdb}
+            className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all"
+          >
+            {t.saveTmdbKey}
+          </button>
         </div>
 
         {/* SMTP Settings */}
@@ -1348,7 +1473,7 @@ function LoginScreen({ onLogin, language, t }: { onLogin: (e: string, p: string,
   );
 }
 
-const DashboardView = React.memo(function DashboardView({ films, onNavigate, onEdit, t, language }: { films: Film[], onNavigate: (tab: any, filter?: any) => void, onEdit: (f: Film) => void, t: any, language: 'tr' | 'en' }) {
+const DashboardView = React.memo(function DashboardView({ films, settings, onNavigate, onEdit, t, language }: { films: Film[], settings: AppSettings, onNavigate: (tab: any, filter?: any) => void, onEdit: (f: Film) => void, t: any, language: 'tr' | 'en' }) {
   const [selectedFilm, setSelectedFilm] = useState<Film | null>(null);
   const upcoming = films.filter(f => f.status === 'Upcoming').sort((a, b) => (a.releaseDate || '').localeCompare(b.releaseDate || ''));
   const watched = films.filter(f => f.status === 'Watched').sort((a, b) => (b.watchedDate || '').localeCompare(a.watchedDate || ''));
@@ -1503,7 +1628,7 @@ const DashboardView = React.memo(function DashboardView({ films, onNavigate, onE
                 <FilmDetailView film={selectedFilm} onEdit={(f) => {
                   onEdit(f);
                   setSelectedFilm(null);
-                }} t={t} language={language} />
+                }} t={t} language={language} tmdbApiKey={settings.tmdbApiKey} />
               </div>
             </motion.div>
           </div>
@@ -2275,6 +2400,7 @@ const ReportsView = React.memo(function ReportsView({ films, settings, onDelete,
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [detailFilm, setDetailFilm] = useState<Film | null>(null);
   
   // Advanced Filter State
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
@@ -2826,6 +2952,14 @@ const ReportsView = React.memo(function ReportsView({ films, settings, onDelete,
                   )}
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => setDetailFilm(f)}
+                        className="p-2 text-zinc-400 hover:text-blue-500 transition-colors"
+                        title={t.details}
+                      >
+                        <Info className="w-4 h-4" />
+                      </button>
                       <button onClick={() => onEdit(f)} className="p-2 text-zinc-400 hover:text-orange-500 transition-colors" title={t.edit}>
                         <Edit3 className="w-4 h-4" />
                       </button>
@@ -2853,6 +2987,38 @@ const ReportsView = React.memo(function ReportsView({ films, settings, onDelete,
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {detailFilm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              <div className="p-4 border-b border-zinc-100 flex items-center justify-between shrink-0">
+                <h3 className="font-bold text-zinc-900">{t.details}</h3>
+                <button type="button" onClick={() => setDetailFilm(null)} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <FilmDetailView
+                  film={detailFilm}
+                  onEdit={(f) => {
+                    onEdit(f);
+                    setDetailFilm(null);
+                  }}
+                  t={t}
+                  language={language}
+                  tmdbApiKey={settings.tmdbApiKey}
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 });
@@ -2872,7 +3038,43 @@ function SortHeader({ label, field, current, order, onSort }: { label: string, f
   );
 }
 
-function FilmDetailView({ film, onEdit, t, language }: { film: Film, onEdit: (f: Film) => void, t: any, language: 'tr' | 'en' }) {
+function FilmDetailView({ film, onEdit, t, language, tmdbApiKey }: { film: Film, onEdit: (f: Film) => void, t: any, language: 'tr' | 'en', tmdbApiKey?: string }) {
+  const effectiveTmdbKey = getTmdbApiKey(tmdbApiKey);
+  const [posterUrls, setPosterUrls] = useState<string[]>([]);
+  const [posterLoading, setPosterLoading] = useState(false);
+  const [posterError, setPosterError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPosterUrls([]);
+    setPosterError(null);
+    setPosterLoading(false);
+  }, [film.id]);
+
+  const loadPosters = async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setPosterError(t.posterOffline);
+      setPosterUrls([]);
+      return;
+    }
+    if (!effectiveTmdbKey) {
+      setPosterError(t.posterNeedKey);
+      setPosterUrls([]);
+      return;
+    }
+    setPosterLoading(true);
+    setPosterError(null);
+    try {
+      const urls = await fetchFilmPosterUrls(effectiveTmdbKey, film);
+      setPosterUrls(urls);
+      if (urls.length === 0) setPosterError(t.posterNone);
+    } catch (e: any) {
+      setPosterUrls([]);
+      setPosterError(e?.message || String(e));
+    } finally {
+      setPosterLoading(false);
+    }
+  };
+
   return (
     <div className="p-8 space-y-8">
       <div className="flex flex-col md:flex-row justify-between gap-6">
@@ -2889,7 +3091,7 @@ function FilmDetailView({ film, onEdit, t, language }: { film: Film, onEdit: (f:
           <h3 className="text-3xl font-serif font-bold text-zinc-900">{film.turkishTitle || film.originalTitle}</h3>
           <p className="text-zinc-500 italic">{film.originalTitle}</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           {film.status === 'Watched' && (
             <div className="text-center px-4 py-2 bg-yellow-50 rounded-2xl border border-yellow-100">
               <p className="text-[10px] font-bold text-yellow-600 uppercase">{t.rating}</p>
@@ -2899,6 +3101,15 @@ function FilmDetailView({ film, onEdit, t, language }: { film: Film, onEdit: (f:
               </div>
             </div>
           )}
+          <button
+            type="button"
+            onClick={loadPosters}
+            disabled={posterLoading}
+            className="flex items-center gap-2 px-4 py-2.5 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all disabled:opacity-60 text-sm"
+          >
+            <ImageIcon className="w-4 h-4 shrink-0" />
+            {posterLoading ? (language === 'tr' ? 'Yükleniyor…' : 'Loading…') : t.showPosters}
+          </button>
           <button 
             onClick={() => onEdit(film)}
             className="p-3 bg-zinc-100 text-zinc-600 rounded-2xl hover:bg-zinc-200 transition-all"
@@ -2912,6 +3123,30 @@ function FilmDetailView({ film, onEdit, t, language }: { film: Film, onEdit: (f:
           </div>
         </div>
       </div>
+
+      <p className="text-xs text-zinc-400 -mt-4">{t.postersHint}</p>
+
+      {posterError && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {posterError}
+        </div>
+      )}
+
+      {posterUrls.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {posterUrls.map(url => (
+            <a
+              key={url}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-xl overflow-hidden border border-zinc-200 bg-zinc-100 shadow-sm hover:ring-2 hover:ring-orange-400 transition-all"
+            >
+              <img src={url} alt="" className="w-full h-auto object-cover aspect-[2/3]" loading="lazy" decoding="async" />
+            </a>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-6">
@@ -3004,7 +3239,7 @@ function FilmDetailView({ film, onEdit, t, language }: { film: Film, onEdit: (f:
     </div>
   );
 }
-const FilmSearchView = React.memo(function FilmSearchView({ films, onEdit, t, language }: { films: Film[], onEdit: (f: Film) => void, t: any, language: 'tr' | 'en' }) {
+const FilmSearchView = React.memo(function FilmSearchView({ films, settings, onEdit, t, language }: { films: Film[], settings: AppSettings, onEdit: (f: Film) => void, t: any, language: 'tr' | 'en' }) {
   const [search, setSearch] = useState('');
   const [selectedFilm, setSelectedFilm] = useState<Film | null>(null);
 
@@ -3074,7 +3309,7 @@ const FilmSearchView = React.memo(function FilmSearchView({ films, onEdit, t, la
           animate={{ opacity: 1, scale: 1 }}
           className="bg-white rounded-3xl border border-zinc-200 shadow-xl overflow-hidden"
         >
-          <FilmDetailView film={selectedFilm} onEdit={onEdit} t={t} language={language} />
+          <FilmDetailView film={selectedFilm} onEdit={onEdit} t={t} language={language} tmdbApiKey={settings.tmdbApiKey} />
         </motion.div>
       )}
     </motion.div>

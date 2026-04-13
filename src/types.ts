@@ -33,6 +33,8 @@ export interface Film {
 export interface AppSettings {
   categories: string[];
   companions: string[];
+  /** Optional TMDB v3 API key for on-demand posters only (not stored on film records). */
+  tmdbApiKey?: string;
   apiKeys: string[];
   activeKeyIndex: number;
   smtpSettings?: {
